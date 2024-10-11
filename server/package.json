@@ -8,7 +8,9 @@
     "dev": "nodemon server.js",
     "db": "sudo docker run -d --name mongodb -p 27017:27017 mongo || sudo docker start mongodb",
     "db:stop": "docker stop mongodb",
-    "db:remove": "docker stop mongodb && docker rm mongodb"
+    "db:remove": "docker stop mongodb && docker rm mongodb",
+    "test": "jest",
+    "lint": "eslint ."
   },
   "dependencies": {
     "cors": "^2.8.5",
