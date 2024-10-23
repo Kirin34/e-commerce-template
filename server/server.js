@@ -1,235 +1,198 @@
+// server.js
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const path = require('path');
+const { body, validationResult } = require('express-validator');
 const dotenv = require('dotenv');
-const winston = require('winston');
 
-// Load .env file
-dotenv.config({ path: path.join(__dirname, '.env') });
-
-// Configure logger
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
-
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.simple(),
-  }));
-}
+dotenv.config();
 
 const app = express();
-
-// Middleware
-app.use(cors());
 app.use(express.json());
 
-// Middleware for authentication
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log('Connected to MongoDB'))
+.catch(err => console.error('MongoDB connection error:', err));
+
+// User Model
+const UserSchema = new mongoose.Schema({
+  username: { 
+    type: String, 
+    required: true, 
+    unique: true, 
+    trim: true, 
+    minlength: 3, 
+    maxlength: 30 
+  },
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    trim: true,
+    lowercase: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please fill a valid email address']
+  },
+  password: { 
+    type: String, 
+    required: true
+  },
+  createdAt: { type: Date, default: Date.now },
+  lastLogin: { type: Date }
+});
+
+const User = mongoose.model('User', UserSchema);
+
+// Middleware
+const validateUser = [
+  body('username').isLength({ min: 3, max: 30 }).trim().escape(),
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long')
+];
+
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
-  if (token == null) {
-    logger.warn('Authentication failed: No token provided');
-    return res.sendStatus(401);
-  }
+  if (!token) return res.status(401).json({ error: 'No token provided' });
 
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) {
-      logger.warn('Authentication failed: Invalid token', { error: err.message });
-      return res.sendStatus(403);
-    }
+    if (err) return res.status(403).json({ error: 'Invalid token' });
     req.user = user;
     next();
   });
 };
 
-// Database connection
-const connectDB = async () => {
-  try {
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/myshop', {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    logger.info('MongoDB connected successfully');
-  } catch (error) {
-    logger.error('MongoDB connection error:', { error: error.message });
-    process.exit(1);
-  }
-};
-
-// User model
-const UserSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true, minlength: 60 },
-  createdAt: { type: Date, default: Date.now },
-});
-
-const User = mongoose.model('User', UserSchema);
-
-
 // Routes
 
-// Registration route
-app.post('/users', async (req, res) => {
+// Register
+app.post('/register', validateUser, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
-    const { username, password, email } = req.body;
-    logger.info('User registration attempt', { username, email });
+    const { username, email, password } = req.body;
     
-    if (!username || !password || !email) {
-      logger.warn('Registration failed: Missing required fields');
-      return res.status(400).json({ error: 'Username, password, and email are required' });
+    // Check if user already exists
+    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username or email already exists' });
     }
 
+    // Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = new User({ username, email, password: hashedPassword });
-    await newUser.save();
-    
-    logger.info('User registered successfully', { username, email });
-    res.status(201).json({ message: 'User created successfully', userId: newUser._id });
+    // Create new user
+    const user = new User({
+      username,
+      email,
+      password: hashedPassword
+    });
+
+    await user.save();
+    res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
-    if (error.code === 11000) {
-      logger.warn('Registration failed: Duplicate username or email', { error: error.message });
-      return res.status(400).json({ error: 'Username or email already exists' });
-    }
-    logger.error('Registration error', { error: error.message });
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Error registering user' });
   }
 });
 
-// Login route
+// Login
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    logger.info('Login attempt', { username });
-
     const user = await User.findOne({ $or: [{ username }, { email: username }] });
+    
     if (!user) {
-      logger.warn('Login failed: User not found', { username });
       return res.status(400).json({ error: 'User not found' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      logger.warn('Login failed: Invalid credentials', { username });
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
     const token = jwt.sign(
-      { userId: user._id, username: user.username, email: user.email },
+      { userId: user._id, username: user.username },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
 
-    logger.info('Login successful', { username });
-    res.json({ message: 'Login successful', token });
-  } catch (error) {
-    logger.error('Login error', { error: error.message });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Get all users route
-app.get('/users', authenticateToken, async (req, res) => {
-  try {
-    const users = await User.find({}, '-password');
-    logger.info('Retrieved all users', { userId: req.user.userId });
-    res.json(users);
-  } catch (error) {
-    logger.error('Error fetching users', { error: error.message, userId: req.user.userId });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Update password route
-app.put('/users/password', authenticateToken, async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    const userEmail = req.user.email; // Get email from the authenticated token
-
-    logger.info('Password update attempt', { email: userEmail });
-
-    if (!currentPassword || !newPassword) {
-      logger.warn('Password update failed: Missing required fields', { email: userEmail });
-      return res.status(400).json({ error: 'Current password and new password are required' });
-    }
-
-    const user = await User.findOne({ email: userEmail });
-    if (!user) {
-      logger.warn('Password update failed: User not found', { email: userEmail });
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      logger.warn('Password update failed: Incorrect current password', { email: userEmail });
-      return res.status(400).json({ error: 'Current password is incorrect' });
-    }
-
-    // Password strength check (example: at least 8 characters)
-    if (newPassword.length < 8) {
-      logger.warn('Password update failed: New password too weak', { email: userEmail });
-      return res.status(400).json({ error: 'New password must be at least 8 characters long' });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-    user.password = hashedPassword;
+    user.lastLogin = new Date();
     await user.save();
 
-    logger.info('Password updated successfully', { email: userEmail });
-    res.json({ message: 'Password updated successfully' });
+    res.json({ token });
   } catch (error) {
-    logger.error('Error updating password', { error: error.message, email: req.user.email });
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Error logging in' });
   }
 });
 
-// Delete user route
-app.delete('/users', authenticateToken, async (req, res) => {
+// Get user profile
+app.get('/profile', authenticateToken, async (req, res) => {
   try {
-    const userEmail = req.user.email;
-    logger.info('User deletion attempt', { email: userEmail });
-
-    const user = await User.findOne({ email: userEmail });
+    const user = await User.findById(req.user.userId).select('-password');
     if (!user) {
-      logger.warn('User deletion failed: User not found', { email: userEmail });
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Profile fetch error:', error);
+    res.status(500).json({ error: 'Error fetching profile' });
+  }
+});
+
+// Update user profile
+app.put('/profile', authenticateToken, validateUser, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const { username, email, password } = req.body;
+    const user = await User.findById(req.user.userId);
+    
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    await User.findByIdAndDelete(user._id);
-    logger.info('User deleted successfully', { email: userEmail });
-    res.json({ message: 'User deleted successfully' });
+    if (username) user.username = username;
+    if (email) user.email = email;
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(password, salt);
+    }
+
+    await user.save();
+    res.json({ message: 'Profile updated successfully' });
   } catch (error) {
-    logger.error('Error deleting user', { error: error.message, email: req.user.email });
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Profile update error:', error);
+    res.status(500).json({ error: 'Error updating profile' });
   }
 });
 
-// Server startup
+// Delete user account
+app.delete('/profile', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ message: 'User account deleted successfully' });
+  } catch (error) {
+    console.error('Account deletion error:', error);
+    res.status(500).json({ error: 'Error deleting account' });
+  }
+});
+
+// Start server
 const PORT = process.env.PORT || 3000;
-
-connectDB().then(() => {
-  app.listen(PORT, () => logger.info(`Server running on port ${PORT}`));
-});
-
-// Error handling for unhandled promise rejections
-process.on('unhandledRejection', (error) => {
-  logger.error('Unhandled Rejection', { error: error.message });
-  process.exit(1);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
