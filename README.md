@@ -1,86 +1,101 @@
-# E-commerce Backend Project
+# E-commerce Backend API
 
-This project is a Node.js backend for an e-commerce application, using Express and MongoDB.
+A Node.js/Express backend API for an e-commerce platform.
+
+## Tech Stack
+
+- **Runtime**: Node.js
+- **Framework**: Express.js
+- **Database**: MongoDB with Mongoose
+- **Authentication**: JWT (JSON Web Tokens)
+- **Validation**: Express Validator
+- **Development**: Nodemon
+- **Testing**: Jest
+- **Documentation**: Postman Collection
 
 ## Prerequisites
 
-- Node.js (v12 or later)
-- npm (usually comes with Node.js)
-- Docker (for running MongoDB in a container)
+- Node.js (v14 or higher)
+- MongoDB (or Docker for containerized MongoDB)
+- npm or yarn package manager
 
-## Setup
+## Installation
 
-1. Clone the repository:
-   ```
-   git clone <your-repo-url>
-   cd <your-project-directory>
-   ```
-
-2. Install dependencies:
-   ```
-   npm install
-   ```
-
-3. Create a `.env` file in the root directory with the following content:
-   ```
-   MONGODB_URI=mongodb://localhost:27017/myshop
-   PORT=3000
-   ```
-
-## Running the Database
-
-We use MongoDB running in a Docker container. To start the database:
-
+1. Clone the repository
+```bash
+git clone <repository-url>
+cd e-commerce-template
 ```
+
+2. Install dependencies
+```bash
+npm install
+```
+
+3. Create a `.env` file in the root directory
+```env
+PORT=3000
+MONGODB_URI=mongodb://localhost:27017/your_database_name
+JWT_SECRET=your_jwt_secret_here
+```
+
+4. Start MongoDB using Docker (optional)
+```bash
+# Start MongoDB container
 npm run db
+
+# Stop MongoDB container
+npm run db:stop
+
+# Remove MongoDB container
+npm run db:remove
 ```
 
-This command will start a MongoDB container named "mongodb" if it doesn't exist, or start it if it already exists.
-
-## Running the Server
-
-To start the server:
-
-```
-npm start
-```
-
-The server will start on the port specified in your .env file (default is 3000).
-
-## API Endpoints
-
-- POST /users - Create a new user
-- GET /users - Get all users
-- GET /users/:id - Get a specific user by ID
-
-## Development
-
-For development, you can use:
-
-```
+5. Start the development server
+```bash
 npm run dev
 ```
 
-This will start the server with nodemon, which will automatically restart the server when you make changes to the code.
-
-## Testing the API
-
-You can use tools like Postman or curl to test the API endpoints. For example:
-
+## Project Structure
 ```
-curl http://localhost:3000/users
+.
+├── README.md
+├── client                  # React frontend application
+├── package.json
+├── server.js              # Application entry point
+└── src
+    ├── config             # Configuration files
+    ├── middleware         # Custom middleware
+    ├── models             # Database models
+    ├── routes            # API routes
+    └── utils             # Utility functions
 ```
 
-## Stopping the Database
+## Available Scripts
 
-To stop the MongoDB container:
+```bash
+# Start development server
+npm run dev
 
-```
+# Start production server
+npm start
+
+# Start MongoDB with Docker
+npm run db
+
+# Stop MongoDB Docker container
 npm run db:stop
+
+# Remove MongoDB Docker container
+npm run db:remove
+
+# Run tests
+npm test
+
+# Run linting
+npm run lint
 ```
 
-## Notes
+## API Documentation
 
-- Remember to secure your application before deploying to production.
-- Consider implementing user authentication and authorization.
-- Always use HTTPS in a production environment.
+Complete API documentation is available in the Postman collection located in the `postman` directory. Import the collection into Postman to explore all available endpoints and their specifications.
